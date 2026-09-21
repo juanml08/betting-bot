@@ -1,0 +1,22 @@
+external_id,sport,league,competitor_home,competitor_away,start_time,status,source,result
+S1,soccer,Sample Soccer League,Lions FC,Eagles FC,2026-01-05T18:00:00,finished,sample,home_win
+S2,soccer,Sample Soccer League,Wolves FC,Tigers FC,2026-01-05T20:00:00,finished,sample,draw
+S3,soccer,Sample Soccer League,Eagles FC,Wolves FC,2026-01-12T18:00:00,finished,sample,away_win
+S4,soccer,Sample Soccer League,Tigers FC,Lions FC,2026-01-12T20:00:00,finished,sample,home_win
+S5,soccer,Sample Soccer League,Lions FC,Wolves FC,2026-01-19T18:00:00,finished,sample,home_win
+S6,soccer,Sample Soccer League,Eagles FC,Tigers FC,2026-01-19T20:00:00,finished,sample,draw
+S7,soccer,Sample Soccer League,Lions FC,Tigers FC,2026-01-26T18:00:00,scheduled,sample,
+B1,basketball,Sample Basketball League,Comets BC,Rockets BC,2026-01-06T19:00:00,finished,sample,home_win
+B2,basketball,Sample Basketball League,Meteors BC,Sparks BC,2026-01-06T21:00:00,finished,sample,away_win
+B3,basketball,Sample Basketball League,Rockets BC,Meteors BC,2026-01-13T19:00:00,finished,sample,home_win
+B4,basketball,Sample Basketball League,Sparks BC,Comets BC,2026-01-13T21:00:00,finished,sample,away_win
+B5,basketball,Sample Basketball League,Comets BC,Meteors BC,2026-01-20T19:00:00,finished,sample,home_win
+B6,basketball,Sample Basketball League,Rockets BC,Sparks BC,2026-01-20T21:00:00,finished,sample,home_win
+B7,basketball,Sample Basketball League,Comets BC,Sparks BC,2026-01-27T19:00:00,scheduled,sample,
+T1,tennis,Sample Tennis Tour,A. Diaz,B. Silva,2026-01-07T14:00:00,finished,sample,home_win
+T2,tennis,Sample Tennis Tour,C. Moreno,D. Ruiz,2026-01-07T16:00:00,finished,sample,away_win
+T3,tennis,Sample Tennis Tour,B. Silva,C. Moreno,2026-01-14T14:00:00,finished,sample,home_win
+T4,tennis,Sample Tennis Tour,D. Ruiz,A. Diaz,2026-01-14T16:00:00,finished,sample,away_win
+T5,tennis,Sample Tennis Tour,A. Diaz,C. Moreno,2026-01-21T14:00:00,finished,sample,home_win
+T6,tennis,Sample Tennis Tour,B. Silva,D. Ruiz,2026-01-21T16:00:00,finished,sample,home_win
+T7,tennis,Sample Tennis Tour,A. Diaz,D. Ruiz,2026-01-28T14:00:00,scheduled,sample,

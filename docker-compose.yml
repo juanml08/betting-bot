@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: betting-bot-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: betting_bot
+      MYSQL_USER: betting_user
+      MYSQL_PASSWORD: betting_password
+      MYSQL_ROOT_PASSWORD: betting_root_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pbetting_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:

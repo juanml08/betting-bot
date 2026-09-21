@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "betting-bot"
+version = "0.1.0"
+description = "Sistema de analisis de eventos deportivos para detectar oportunidades de apuesta con valor esperado positivo. Las apuestas siempre se ejecutan manualmente; este sistema no se conecta a ninguna casa de apuestas para apostar."
+authors = ["David Lopez <david.lopez@iellow.io>"]
+readme = "README.md"
+packages = [{ include = "app" }, { include = "backtesting" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.32.0" }
+pydantic = "^2.9.0"
+pydantic-settings = "^2.5.0"
+sqlalchemy = "^2.0.35"
+alembic = "^1.13.3"
+pymysql = "^1.1.1"
+cryptography = "^43.0.1"
+pandas = "^2.2.3"
+numpy = "^2.1.2"
+python-dotenv = "^1.0.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+httpx = "^0.27.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
