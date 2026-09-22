@@ -1,13 +1,18 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.bets.bet_service import BetService
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.db.repositories.bankroll_repository import BankrollRepository
 from app.db.repositories.bet_repository import BetRepository
+from app.db.repositories.recommendation_repository import RecommendationRepository
+from app.db.repositories.settlement_repository import SettlementRepository
 from app.schemas.bet import BetCreate, BetRead, BetSettle
+from app.settlements.settlement_service import BetAlreadySettledError, BetNotFoundError, SettlementService
 
 router = APIRouter(prefix="/bets", tags=["bets"])
 
@@ -24,34 +29,47 @@ def register_bet(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> BetRead:
-    """Registra una apuesta que el usuario YA realizo manualmente fuera del sistema.
+    """Registra una apuesta ya colocada: manual (mode='real', el usuario ya
+    aposto fuera del sistema) o, en el futuro, generada por TRIAL con dinero
+    ficticio (mode='trial'). Este endpoint no envia ni ejecuta ninguna
+    apuesta: solo deja constancia.
 
-    Este endpoint no envia ni ejecuta ninguna apuesta: solo deja constancia
-    de la decision humana para poder medir el resultado despues.
+    El movimiento de bankroll (-stake) solo se aplica para mode='real': el
+    ledger de bankroll ficticio de TRIAL todavia no existe (fase futura), asi
+    que un Bet mode='trial' no debe mezclarse con la banca real.
     """
-    bankroll_repo = BankrollRepository(db)
-    current_balance = bankroll_repo.current_balance(settings.initial_bankroll)
+    bet_service = BetService(BetRepository(db), RecommendationRepository(db))
 
-    bet_repo = BetRepository(db)
-    bet = bet_repo.create(
-        event_id=payload.event_id,
-        market_type=payload.market_type,
-        selection=payload.selection,
-        odds_taken=payload.odds_taken,
-        stake=payload.stake,
-        bankroll_at_time=current_balance,
-        placed_at=datetime.now(timezone.utc),
-        opportunity_id=payload.opportunity_id,
-        notes=payload.notes,
-    )
+    try:
+        bet = bet_service.create_bet(
+            bet_type=payload.bet_type,
+            mode=payload.mode,
+            stake=payload.stake,
+            bankroll_at_time=BankrollRepository(db).current_balance(settings.initial_bankroll),
+            placed_at=datetime.now(timezone.utc),
+            legs=[leg.model_dump() for leg in payload.legs],
+            recommendation_id=payload.recommendation_id,
+            notes=payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="La Recommendation indicada ya tiene un Bet asociado",
+        ) from exc
 
-    bankroll_repo.record(
-        occurred_on=bet.placed_at.date(),
-        amount=-payload.stake,
-        reason="bet_placed",
-        balance_after=current_balance - payload.stake,
-        related_bet_id=bet.id,
-    )
+    if payload.mode == "real":
+        bankroll_repo = BankrollRepository(db)
+        current_balance = bankroll_repo.current_balance(settings.initial_bankroll)
+        bankroll_repo.record(
+            occurred_on=bet.placed_at.date(),
+            amount=-payload.stake,
+            reason="bet_placed",
+            balance_after=current_balance - payload.stake,
+            related_bet_id=bet.id,
+        )
 
     db.commit()
     db.refresh(bet)
@@ -65,37 +83,50 @@ def settle_bet(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> BetRead:
-    """Registra el resultado de una apuesta ya decidido fuera del sistema (won/lost/void/pushed)."""
-    bet_repo = BetRepository(db)
-    bet = bet_repo.get(bet_id)
-    if bet is None:
-        raise HTTPException(status_code=404, detail="Apuesta no encontrada")
-    if bet.status != "pending":
-        raise HTTPException(status_code=409, detail="Esta apuesta ya fue liquidada")
+    """Liquida un Bet a partir del resultado de cada una de sus BetLeg.
 
-    settled_at = datetime.now(timezone.utc)
-    bet_repo.settle(bet_id, status=payload.status, settled_at=settled_at)
+    El movimiento de bankroll solo se aplica para mode='real' (mismo motivo
+    que en el registro: el ledger ficticio de TRIAL es una fase futura).
+    """
+    settlement_service = SettlementService(BetRepository(db), SettlementRepository(db))
+    leg_results = {leg.leg_order: leg.result for leg in payload.leg_results}
 
-    if payload.status == "won":
-        # El stake ya se descontó de la banca al registrar la apuesta, por lo
-        # que al ganar se acredita el payout completo (stake * odds), no solo
-        # la ganancia neta.
-        change = float(bet.stake) * float(bet.odds_taken)
-    elif payload.status in ("lost",):
-        change = 0.0  # el stake ya se desconto de la banca al registrar la apuesta
-    else:  # void / pushed: se devuelve el stake
-        change = float(bet.stake)
+    try:
+        settlement = settlement_service.settle_bet(
+            bet_id,
+            leg_results=leg_results,
+            settled_at=datetime.now(timezone.utc),
+            notes=payload.notes,
+        )
+    except BetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Apuesta no encontrada") from exc
+    except BetAlreadySettledError as exc:
+        raise HTTPException(status_code=409, detail="Esta apuesta ya fue liquidada") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if change != 0.0:
+    bet = BetRepository(db).get(bet_id)
+
+    if bet.mode == "real":
         bankroll_repo = BankrollRepository(db)
         current_balance = bankroll_repo.current_balance(settings.initial_bankroll)
-        bankroll_repo.record(
-            occurred_on=settled_at.date(),
-            amount=change,
-            reason=f"bet_{payload.status}",
-            balance_after=current_balance + change,
-            related_bet_id=bet.id,
-        )
+        change = None
+        if settlement.status == "won":
+            change = float(settlement.payout)
+            reason = "bet_won"
+        elif settlement.status == "void":
+            change = float(settlement.payout)
+            reason = "bet_void"
+        # lost y manual_review no generan movimiento de bankroll en esta fase.
+
+        if change is not None:
+            bankroll_repo.record(
+                occurred_on=settlement.settled_at.date(),
+                amount=change,
+                reason=reason,
+                balance_after=current_balance + change,
+                related_bet_id=bet.id,
+            )
 
     db.commit()
     db.refresh(bet)

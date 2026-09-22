@@ -1,9 +1,18 @@
 from datetime import datetime
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Bet
+from app.db.models import Bet, BetLeg
+
+
+class BetLegInput(TypedDict):
+    event_id: int
+    market_type: str
+    selection: str
+    bookmaker: str
+    odds_taken: float
 
 
 class BetRepository:
@@ -22,22 +31,24 @@ class BetRepository:
     def create(
         self,
         *,
-        event_id: int,
-        market_type: str,
-        selection: str,
-        odds_taken: float,
+        bet_type: str,
+        mode: str,
         stake: float,
         bankroll_at_time: float,
         placed_at: datetime,
-        opportunity_id: int | None = None,
+        legs: list[BetLegInput],
+        recommendation_id: int | None = None,
         notes: str | None = None,
     ) -> Bet:
+        """Crea el Bet junto con sus BetLeg en una sola operacion atomica: si
+        algo falla (p.ej. un event_id invalido), no debe quedar un Bet sin
+        sus legs. La validacion de forma (cantidad de legs segun bet_type,
+        sin event_id repetidos) es responsabilidad de BetService, no de este
+        repositorio."""
         bet = Bet(
-            opportunity_id=opportunity_id,
-            event_id=event_id,
-            market_type=market_type,
-            selection=selection,
-            odds_taken=odds_taken,
+            recommendation_id=recommendation_id,
+            bet_type=bet_type,
+            mode=mode,
             stake=stake,
             bankroll_at_time=bankroll_at_time,
             placed_at=placed_at,
@@ -46,13 +57,19 @@ class BetRepository:
         )
         self._db.add(bet)
         self._db.flush()
-        return bet
 
-    def settle(self, bet_id: int, *, status: str, settled_at: datetime) -> Bet | None:
-        bet = self.get(bet_id)
-        if bet is None:
-            return None
-        bet.status = status
-        bet.settled_at = settled_at
+        for leg_order, leg in enumerate(legs, start=1):
+            self._db.add(
+                BetLeg(
+                    bet_id=bet.id,
+                    leg_order=leg_order,
+                    event_id=leg["event_id"],
+                    market_type=leg["market_type"],
+                    selection=leg["selection"],
+                    bookmaker=leg["bookmaker"],
+                    odds_taken=leg["odds_taken"],
+                    result="pending",
+                )
+            )
         self._db.flush()
         return bet

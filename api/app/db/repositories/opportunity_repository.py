@@ -17,10 +17,16 @@ class OpportunityRepository:
             stmt = stmt.where(Opportunity.status == status)
         return list(self._db.scalars(stmt.order_by(Opportunity.created_at.desc())))
 
-    def save_candidate(self, candidate: OpportunityCandidate, event_id: int) -> Opportunity:
+    def save_candidate(
+        self,
+        candidate: OpportunityCandidate,
+        event_id: int,
+        probability_estimate_id: int | None = None,
+    ) -> Opportunity:
         opp = candidate.opportunity
         record = Opportunity(
             event_id=event_id,
+            probability_estimate_id=probability_estimate_id,
             market_type=opp.market_type,
             selection=opp.selection,
             bookmaker=opp.bookmaker,
