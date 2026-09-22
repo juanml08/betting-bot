@@ -77,8 +77,10 @@ def settle_bet(
     bet_repo.settle(bet_id, status=payload.status, settled_at=settled_at)
 
     if payload.status == "won":
-        payout = float(bet.stake) * float(bet.odds_taken)
-        change = payout - float(bet.stake)
+        # El stake ya se descontó de la banca al registrar la apuesta, por lo
+        # que al ganar se acredita el payout completo (stake * odds), no solo
+        # la ganancia neta.
+        change = float(bet.stake) * float(bet.odds_taken)
     elif payload.status in ("lost",):
         change = 0.0  # el stake ya se desconto de la banca al registrar la apuesta
     else:  # void / pushed: se devuelve el stake

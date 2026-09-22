@@ -85,16 +85,16 @@ def test_settle_bet_won_credits_payout_to_bankroll(client, db_session, seeded_ev
     assert payload["status"] == "won"
     assert payload["settled_at"] is not None
 
-    # -50 al registrar. Al ganar, el endpoint acredita (payout - stake) = solo
-    # la ganancia neta, no el payout completo (ver app/api/v1/endpoints/bets.py):
-    # 50*2.0 - 50 = 50 => 950 + 50 = 1000.
+    # -50 al registrar (950). Al ganar, el endpoint acredita el payout
+    # completo (stake * odds), no solo la ganancia neta, porque el stake ya
+    # fue descontado al registrar: 50*2.0 = 100 => 950 + 100 = 1050.
     status_resp = client.get("/api/v1/bankroll/status")
-    assert status_resp.json()["current_balance"] == 1000.0
+    assert status_resp.json()["current_balance"] == 1050.0
 
     transactions = db_session.query(BankrollTransaction).order_by(BankrollTransaction.id).all()
     assert len(transactions) == 2
     assert transactions[1].reason == "bet_won"
-    assert float(transactions[1].amount) == 50.0
+    assert float(transactions[1].amount) == 100.0
 
 
 def test_settle_bet_lost_does_not_return_stake(client, seeded_events):
@@ -117,6 +117,29 @@ def test_settle_bet_void_returns_stake(client, seeded_events):
 
     status_resp = client.get("/api/v1/bankroll/status")
     assert status_resp.json()["current_balance"] == 1000.0
+
+
+def test_bet_won_full_flow_balance_1000_950_1050(client, seeded_events):
+    """Caso explicito de la regla de negocio:
+
+    balance inicial = 1000, stake = 50, odds = 2.0
+    registro -> 950 (se descuenta el stake)
+    won -> 1050 (se acredita el payout completo: 50 * 2.0 = 100)
+    """
+    event = seeded_events["S1"]
+
+    create_resp = client.post("/api/v1/bets", json=_bet_payload(event.id, odds_taken=2.0, stake=50.0))
+    assert create_resp.status_code == 201
+    bet_id = create_resp.json()["id"]
+
+    balance_after_register = client.get("/api/v1/bankroll/status").json()["current_balance"]
+    assert balance_after_register == 950.0
+
+    settle_resp = client.post(f"/api/v1/bets/{bet_id}/settle", json={"status": "won"})
+    assert settle_resp.status_code == 200
+
+    balance_after_won = client.get("/api/v1/bankroll/status").json()["current_balance"]
+    assert balance_after_won == 1050.0
 
 
 def test_settle_bet_already_settled_returns_conflict(client, seeded_events):
