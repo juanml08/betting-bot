@@ -28,6 +28,10 @@ class BetRepository:
     def get(self, bet_id: int) -> Bet | None:
         return self._db.get(Bet, bet_id)
 
+    def get_by_recommendation(self, recommendation_id: int) -> Bet | None:
+        stmt = select(Bet).where(Bet.recommendation_id == recommendation_id)
+        return self._db.scalars(stmt).one_or_none()
+
     def create(
         self,
         *,
