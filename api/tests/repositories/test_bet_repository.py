@@ -247,3 +247,80 @@ def test_manual_bet_without_recommendation_is_allowed(db_session):
     db_session.commit()
 
     assert bet.recommendation_id is None
+
+
+def _create_bet(repo, legs):
+    return repo.create(
+        bet_type="simple" if len(legs) == 1 else "compound",
+        mode="real",
+        stake=50.0,
+        bankroll_at_time=1000.0,
+        placed_at=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        legs=legs,
+    )
+
+
+def test_bet_leg_unique_constraint_on_bet_id_and_event_id(db_session):
+    event = _make_event(db_session)
+    bet = _create_bet(BetRepository(db_session), [_leg(event.id)])
+    db_session.commit()
+
+    db_session.add(BetLeg(bet_id=bet.id, leg_order=2, **_leg(event.id, selection="away")))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
+def test_same_event_is_allowed_in_different_bets(db_session):
+    event = _make_event(db_session)
+    repo = BetRepository(db_session)
+    bet_a = _create_bet(repo, [_leg(event.id)])
+    bet_b = _create_bet(repo, [_leg(event.id)])
+    db_session.commit()
+
+    assert bet_a.id != bet_b.id
+    assert bet_a.legs[0].event_id == bet_b.legs[0].event_id == event.id
+
+
+def test_different_events_are_allowed_in_same_bet(db_session):
+    event_a = _make_event(db_session, "EV_A")
+    event_b = _make_event(db_session, "EV_B")
+    bet = _create_bet(BetRepository(db_session), [_leg(event_a.id), _leg(event_b.id)])
+    db_session.commit()
+
+    assert [leg.event_id for leg in bet.legs] == [event_a.id, event_b.id]
+
+
+def test_bet_leg_odds_taken_is_persisted_on_creation(db_session):
+    event = _make_event(db_session)
+    bet = _create_bet(BetRepository(db_session), [_leg(event.id, odds_taken=2.35)])
+    db_session.commit()
+    db_session.expire_all()
+
+    assert float(bet.legs[0].odds_taken) == 2.35
+
+
+def test_bet_leg_odds_taken_cannot_be_modified_after_creation(db_session):
+    event = _make_event(db_session)
+    bet = _create_bet(BetRepository(db_session), [_leg(event.id, odds_taken=2.35)])
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="inmutable"):
+        bet.legs[0].odds_taken = 9.99
+    db_session.rollback()
+    assert float(bet.legs[0].odds_taken) == 2.35
+
+
+def test_bet_leg_other_fields_remain_updatable(db_session):
+    event = _make_event(db_session)
+    bet = _create_bet(BetRepository(db_session), [_leg(event.id)])
+    db_session.commit()
+
+    leg = bet.legs[0]
+    leg.result = "won"
+    leg.bookmaker = "OtherBook"
+    db_session.commit()
+    db_session.expire_all()
+
+    assert leg.result == "won"
+    assert leg.bookmaker == "OtherBook"

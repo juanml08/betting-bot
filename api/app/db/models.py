@@ -6,7 +6,8 @@ app.domain.models son los que fluyen dentro del pipeline en memoria.
 from datetime import date, datetime
 
 from sqlalchemy import JSON, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import inspect
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.core.database import Base
 
@@ -173,7 +174,10 @@ class BetLeg(Base):
     """
 
     __tablename__ = "bet_legs"
-    __table_args__ = (UniqueConstraint("bet_id", "leg_order", name="uq_bet_legs_leg_order"),)
+    __table_args__ = (
+        UniqueConstraint("bet_id", "leg_order", name="uq_bet_legs_leg_order"),
+        UniqueConstraint("bet_id", "event_id", name="uq_bet_legs_bet_event"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     bet_id: Mapped[int] = mapped_column(ForeignKey("bets.id"), index=True)
@@ -187,6 +191,15 @@ class BetLeg(Base):
 
     bet: Mapped["Bet"] = relationship(back_populates="legs")
     event: Mapped["Event"] = relationship()
+
+    @validates("odds_taken")
+    def _odds_taken_is_immutable(self, key, value):
+        """odds_taken es un snapshot historico: se fija al crear el BetLeg y
+        no puede reasignarse una vez persistido. Protege la ruta ORM; un
+        UPDATE directo por SQL/bulk update no pasa por aqui."""
+        if inspect(self).has_identity:
+            raise ValueError("BetLeg.odds_taken es inmutable una vez creado el BetLeg")
+        return value
 
 
 class Settlement(Base):
