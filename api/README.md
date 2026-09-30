@@ -111,6 +111,20 @@ O vía API: `POST /api/v1/backtest/run` con un rango de fechas, que persiste el 
 
 El motor de backtesting solo usa, para cada evento evaluado, historia estrictamente anterior a su fecha de inicio (sin look-ahead bias), y calcula ROI, win rate, Brier score (calibración de probabilidad) y máximo drawdown. Estas métricas son la base objetiva para aceptar o descartar una estrategia — un ROI positivo en una muestra pequeña de datos de ejemplo no es evidencia de nada por sí solo.
 
+## Trial Scheduler
+
+Ejecuta `TrialFlowService.run()` (settlement + nuevo ciclo Trial) de forma periódica:
+
+```bash
+poetry run python scripts/run_trial_scheduler.py --bankroll 500 --interval-seconds 60
+```
+
+- `--bankroll` (obligatorio, > 0): bankroll Trial que se pasa explícitamente a cada ciclo.
+- `--interval-seconds` (opcional, > 0, default 60): espera entre el fin de un ciclo y el inicio del siguiente.
+- Ejecuta un ciclo inmediatamente al arrancar y luego uno por intervalo; los ciclos son secuenciales, nunca solapados.
+- Un ciclo que falla se registra y el scheduler continúa. `Ctrl+C` / `SIGTERM` lo detienen limpiamente.
+- Esta versión asume **un único runner**: no hay locks distribuidos ni coordinación entre procesos.
+
 ## Tests
 
 ```bash
