@@ -16,6 +16,10 @@ pendientes de otros procesos): un rollback descarta todo lo no commiteado.
 'no_bet' se persiste como Recommendation (auditoria) y se commitea sin llamar
 al executor. Un ciclo sin Opportunities elegibles tambien es un 'no_bet'.
 
+Elegibilidad: OpportunityRepository.list_eligible (status candidate, TTL sobre
+last_observed_at, evento scheduled y futuro). Este servicio solo agrega la
+regla propia de Trial descrita abajo.
+
 Anti-duplicados (pre-filtro, sin migracion): se excluyen las Opportunity de
 eventos que ya tienen un Bet trial abierto (Bet.mode='trial' y
 Bet.status='pending', incluye un Bet cuyo Settlement quedo en manual_review).
@@ -28,12 +32,14 @@ BankrollTransaction y no se descuenta el stake.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Bet, BetLeg, Event, Opportunity, Recommendation
+from app.core.config import get_settings
+from app.db.models import Bet, BetLeg, Opportunity, Recommendation
+from app.db.repositories.opportunity_repository import OpportunityRepository
 from app.db.repositories.recommendation_repository import RecommendationRepository
 from app.decisions.decision_engine import DecisionEngine
 from app.domain.interfaces import RiskManager
@@ -41,8 +47,6 @@ from app.recommendations.recommendation_service import RecommendationService
 from app.trials.trial_executor import TrialExecutor
 
 _MODE = "trial"
-_ELIGIBLE_OPPORTUNITY_STATUS = "candidate"
-_ELIGIBLE_EVENT_STATUS = "scheduled"
 _OPEN_BET_STATUS = "pending"
 _DEFAULT_STRATEGY_NAME = "decision_engine"
 
@@ -65,8 +69,13 @@ class TrialService:
         *,
         strategy_name: str = _DEFAULT_STRATEGY_NAME,
         strategy_params: dict | None = None,
+        opportunity_ttl: timedelta | None = None,
     ):
         self._db = db
+        self._opportunity_repo = OpportunityRepository(db)
+        self._opportunity_ttl = opportunity_ttl or timedelta(
+            seconds=get_settings().opportunity_ttl_seconds
+        )
         self._decision_engine = decision_engine or DecisionEngine()
         self._recommendation_service = RecommendationService(RecommendationRepository(db))
         self._executor = TrialExecutor(db, risk_manager)
@@ -113,23 +122,7 @@ class TrialService:
                 .where(Bet.mode == _MODE, Bet.status == _OPEN_BET_STATUS)
             )
         )
-        now = _as_utc(placed_at)
-        rows = self._db.execute(
-            select(Opportunity, Event)
-            .join(Event, Event.id == Opportunity.event_id)
-            .where(
-                Opportunity.status == _ELIGIBLE_OPPORTUNITY_STATUS,
-                Event.status == _ELIGIBLE_EVENT_STATUS,
-            )
-            .order_by(Opportunity.id)
-        )
-        return [
-            o
-            for o, event in rows
-            if event.id not in open_event_ids and _as_utc(event.start_time) > now
-        ]
-
-
-def _as_utc(value: datetime) -> datetime:
-    """MySQL y SQLite devuelven datetimes naive; se asume UTC (igual que TrialExecutor)."""
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        # Frescura (candidate + TTL) y elegibilidad del evento (scheduled, no
+        # iniciado) las resuelve el repository; aqui solo la regla de Trial.
+        eligible = self._opportunity_repo.list_eligible(now=placed_at, ttl=self._opportunity_ttl)
+        return [o for o in eligible if o.event_id not in open_event_ids]

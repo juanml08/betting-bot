@@ -20,3 +20,7 @@ class OpportunityRead(BaseModel):
     suggested_stake: float
     status: str
     created_at: datetime
+    version: int
+    last_observed_at: datetime
+    superseded_at: datetime | None = None
+    superseded_by_id: int | None = None

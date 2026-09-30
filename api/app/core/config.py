@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     min_odds: float = 1.3
     max_odds: float = 10.0
 
+    # Frescura de Opportunities: una candidata solo es elegible si su ultima
+    # observacion (last_observed_at) tiene a lo sumo TTL de antiguedad.
+    # TTL = multiplicador x intervalo de polling.
+    opportunity_polling_interval_seconds: float = 60.0
+    opportunity_ttl_multiplier: float = 3.0
+
+    @property
+    def opportunity_ttl_seconds(self) -> float:
+        return self.opportunity_polling_interval_seconds * self.opportunity_ttl_multiplier
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -31,11 +31,11 @@ def _event(db, n, start=START):
     return e
 
 
-def _opportunity(db, event):
+def _opportunity(db, event, observed_at=T1):
     o = Opportunity(
         event_id=event.id, market_type="1x2", selection="home", bookmaker="B", odds_value=2.0,
         estimated_probability=0.6, implied_probability=0.5, edge=0.1, expected_value=0.2,
-        kelly_fraction_suggested=0.2, suggested_stake=10.0, status="candidate", created_at=T1,
+        kelly_fraction_suggested=0.2, suggested_stake=10.0, status="candidate", created_at=observed_at,
     )
     db.add(o)
     db.flush()
@@ -56,7 +56,7 @@ def test_settlement_then_execution_across_two_runs(db_session, flow):
     # El evento termina y aparece una nueva Opportunity para un evento futuro.
     first_event.status, first_event.result = "finished", "home_win"
     new_event = _event(db_session, 2, start=T2 + timedelta(hours=6))
-    new_opp = _opportunity(db_session, new_event)
+    new_opp = _opportunity(db_session, new_event, observed_at=T2)  # observada dentro del TTL de la 2a corrida
     db_session.commit()
 
     r2 = flow.run(now=T2, bankroll=1000.0)

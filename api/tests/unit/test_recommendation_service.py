@@ -291,8 +291,9 @@ def test_later_changes_to_opportunity_do_not_alter_existing_recommendation(
     recommendation_id = recommendation.id
 
     opportunity = opportunities[0]
-    opportunity.status = "rejected"
-    opportunity.estimated_probability = 0.99
+    opportunity.status = "rejected"  # el lifecycle solo muta status/superseded_*/last_observed_at
+    with pytest.raises(ValueError):
+        opportunity.estimated_probability = 0.99  # campo de decision: inmutable via ORM
     db_session.commit()
 
     db_session.expire_all()
@@ -374,7 +375,8 @@ def test_decision_metadata_is_persisted_as_snapshot(service, db_session, opportu
 
     # Mutar el dict original o la Opportunity despues no altera lo guardado.
     metadata["selected"] = "compound"
-    opportunities[0].estimated_probability = 0.99
+    with pytest.raises(ValueError):
+        opportunities[0].estimated_probability = 0.99  # inmutable via ORM
     db_session.rollback()
     db_session.expire_all()
 

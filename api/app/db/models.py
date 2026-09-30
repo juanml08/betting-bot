@@ -5,7 +5,7 @@ app.domain.models son los que fluyen dentro del pipeline en memoria.
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import inspect
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
@@ -58,7 +58,31 @@ class ProbabilityEstimateRecord(Base):
 
 
 class Opportunity(Base):
+    """Version de un slot (event_id, market_type, selection, bookmaker).
+
+    Ciclo de vida (ver OpportunityLifecycleService): una fila es un snapshot
+    inmutable de la decision (cuota + probabilidad). Si cambia cualquiera de
+    las dos se crea una version nueva y la anterior queda 'superseded'; si
+    deja de ser valida sin reemplazo queda 'expired'. Solo la ultima version
+    de un slot puede ser 'candidate'.
+
+    Solo son mutables por el lifecycle: status, superseded_at,
+    superseded_by_id y last_observed_at (ultima observacion valida del slot
+    por el proveedor, no el momento de persistencia: ese es created_at).
+    """
+
     __tablename__ = "opportunities"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "market_type",
+            "selection",
+            "bookmaker",
+            "version",
+            name="uq_opportunities_slot_version",
+        ),
+        Index("ix_opportunities_status_last_observed_at", "status", "last_observed_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
@@ -77,8 +101,38 @@ class Opportunity(Base):
     suggested_stake: Mapped[float] = mapped_column(Numeric(10, 2))
     status: Mapped[str] = mapped_column(String(20), default="candidate")
     created_at: Mapped[datetime] = mapped_column(DateTime)
+    version: Mapped[int] = mapped_column(default=1)
+    last_observed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda ctx: ctx.get_current_parameters()["created_at"]
+    )
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("opportunities.id"), nullable=True
+    )
 
     event: Mapped["Event"] = relationship(back_populates="opportunities")
+
+    @validates(
+        "event_id",
+        "market_type",
+        "selection",
+        "bookmaker",
+        "odds_value",
+        "estimated_probability",
+        "implied_probability",
+        "edge",
+        "expected_value",
+        "kelly_fraction_suggested",
+        "suggested_stake",
+        "created_at",
+    )
+    def _decision_fields_are_immutable(self, key, value):
+        """Los campos de decision son un snapshot historico: se fijan al crear
+        la Opportunity y no pueden reasignarse una vez persistida. Protege la
+        ruta ORM; un UPDATE directo por SQL/bulk update no pasa por aqui."""
+        if inspect(self).has_identity:
+            raise ValueError(f"Opportunity.{key} es inmutable una vez creada la Opportunity")
+        return value
 
 
 class Recommendation(Base):

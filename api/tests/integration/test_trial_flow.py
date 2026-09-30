@@ -21,11 +21,11 @@ from app.db.models import (
     Settlement,
 )
 from app.db.repositories.bet_repository import BetRepository
-from app.db.repositories.opportunity_repository import OpportunityRepository
 from app.filters.opportunity_filters import OpportunityFilterConfig, ThresholdOpportunityFilter
 from app.ingestion.providers.sample_data_provider import SampleDataProvider
 from app.models.generic_rating_model import GenericRatingModel
 from app.odds.providers.sample_odds_provider import SampleOddsProvider
+from app.opportunities.opportunity_lifecycle_service import OpportunityLifecycleService
 from app.opportunities.opportunity_service import OpportunityService
 from app.risk.bankroll import FractionalKellyRiskManager, RiskConfig
 from app.trials.trial_service import TrialService
@@ -207,14 +207,14 @@ def test_second_cycle_does_not_execute_again_for_same_event(db_session, service)
 
 
 def test_fresh_duplicate_opportunity_for_same_event_is_not_executed(db_session, service):
-    """/generate crea filas nuevas en cada corrida: una Opportunity nueva para
-    un evento ya apostado no debe producir un segundo Bet."""
+    """Una Opportunity nueva (otro slot) para un evento ya apostado no debe
+    producir un segundo Bet."""
     event = _event(db_session)
     _opportunity(db_session, event)
     db_session.commit()
     service.run_cycle(placed_at=PLACED_AT, bankroll=BANKROLL)
 
-    _opportunity(db_session, event)  # duplicado de un /generate posterior
+    _opportunity(db_session, event, selection="draw")  # otra seleccion del mismo evento
     db_session.commit()
     second = service.run_cycle(placed_at=PLACED_AT, bankroll=BANKROLL)
 
@@ -364,6 +364,60 @@ def test_recommendation_preserves_decision_result(db_session, service):
     assert rec.strategy_name == "decision_engine"
 
 
+# --- Fase 5.12: la elegibilidad estructural vive en el repository ------------
+
+
+def test_trial_service_delegates_eligibility_to_repository(db_session, service, monkeypatch):
+    from app.db.repositories.opportunity_repository import OpportunityRepository
+
+    calls = []
+
+    def fake(self, *, now, ttl):
+        calls.append((now, ttl))
+        return []
+
+    monkeypatch.setattr(OpportunityRepository, "list_eligible", fake)
+    _opportunity(db_session, _event(db_session))  # candidate valida, pero el repository manda
+    db_session.commit()
+
+    result = service.run_cycle(placed_at=PLACED_AT, bankroll=BANKROLL)
+
+    assert result.status == "no_bet" and result.eligible_opportunity_ids == []
+    assert calls == [(PLACED_AT, timedelta(seconds=180))]  # TTL por defecto: 3 x 60 s
+
+
+def test_trial_service_only_adds_the_pending_trial_bet_rule(db_session, service, monkeypatch):
+    from app.db.repositories.opportunity_repository import OpportunityRepository
+
+    busy = _opportunity(db_session, _event(db_session, 1))
+    db_session.commit()
+    service.run_cycle(placed_at=PLACED_AT, bankroll=BANKROLL)  # abre un Bet sobre el evento 1
+    free = _opportunity(db_session, _event(db_session, 2))
+    db_session.commit()
+    monkeypatch.setattr(OpportunityRepository, "list_eligible", lambda self, **kw: [busy, free])
+
+    result = service.run_cycle(placed_at=PLACED_AT, bankroll=BANKROLL)
+
+    assert result.eligible_opportunity_ids == [free.id]
+
+
+def test_custom_ttl_controls_eligibility(db_session):
+    risk = FractionalKellyRiskManager(RiskConfig(kelly_fraction=0.25, max_stake_pct_per_bet=0.05))
+    _opportunity(db_session, _event(db_session))  # last_observed_at = PLACED_AT
+    db_session.commit()
+    later = PLACED_AT + timedelta(minutes=10)
+
+    short = TrialService(db_session, risk, opportunity_ttl=timedelta(minutes=5)).run_cycle(
+        placed_at=later, bankroll=BANKROLL
+    )
+    assert short.eligible_opportunity_ids == []
+
+    long = TrialService(db_session, risk, opportunity_ttl=timedelta(minutes=15)).run_cycle(
+        placed_at=later, bankroll=BANKROLL
+    )
+    assert len(long.eligible_opportunity_ids) == 1
+
+
 # --- Humo con OpportunityService real ---------------------------------------
 
 
@@ -377,11 +431,8 @@ def test_smoke_with_real_opportunity_service(db_session, seeded_events, service)
         ),
         risk_manager=FractionalKellyRiskManager(RiskConfig(kelly_fraction=0.25, max_stake_pct_per_bet=0.05)),
     )
-    repo = OpportunityRepository(db_session)
-    for candidate in opportunity_service.generate_opportunities(current_bankroll=BANKROLL):
-        event = seeded_events[candidate.opportunity.event_external_id]
-        repo.save_candidate(candidate, event_id=event.id)
-    db_session.commit()
+    observation = opportunity_service.generate_observation(current_bankroll=BANKROLL)
+    OpportunityLifecycleService(db_session).apply(observation)
 
     # No se asume que apuesta elige el engine con datos de muestra.
     result = service.run_cycle(placed_at=datetime(2025, 1, 1, tzinfo=timezone.utc), bankroll=BANKROLL)

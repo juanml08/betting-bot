@@ -49,12 +49,12 @@ def _event(db, n, *, status="scheduled", result=None, start=START):
     return e
 
 
-def _opp(db, event, *, p=0.6, odds=2.0, kelly=0.2, selection="home", created_at=T0):
+def _opp(db, event, *, p=0.6, odds=2.0, kelly=0.2, selection="home", created_at=T0, version=1):
     o = Opportunity(
         event_id=event.id, market_type="1x2", selection=selection, bookmaker="B", odds_value=odds,
         estimated_probability=p, implied_probability=1 / odds, edge=p - 1 / odds,
         expected_value=p * odds - 1, kelly_fraction_suggested=kelly, suggested_stake=10.0,
-        status="candidate", created_at=created_at,
+        status="candidate", created_at=created_at, version=version,
     )
     db.add(o)
     db.flush()
@@ -110,17 +110,31 @@ def test_opportunity_stays_candidate_after_bet_and_settlement(db_session, flow):
     assert db_session.get(Opportunity, opp.id).status == "candidate"
 
 
-# F-05: una Opportunity vieja (cuota mayor) domina a la fresca y su cuota queda congelada.
-def test_stale_higher_odds_opportunity_beats_fresh_one_and_freezes_stale_odds(db_session, flow):
+# F-05 (corregido en 5.12): una version vieja supersedida ya no compite; solo la
+# version vigente llega al engine y su cuota es la que queda congelada.
+def test_superseded_stale_opportunity_cannot_compete_with_current_version(db_session, flow):
     event = _event(db_session, 1)
-    stale = _opp(db_session, event, p=0.6, odds=2.5, created_at=T0 - timedelta(days=3))
-    _opp(db_session, event, p=0.6, odds=2.0, created_at=T0)  # cuota actual, mas baja
+    stale = _opp(db_session, event, p=0.6, odds=2.5, created_at=T0 - timedelta(minutes=1))
+    current = _opp(db_session, event, p=0.6, odds=2.0, created_at=T0, version=2)
+    stale.status, stale.superseded_by_id, stale.superseded_at = "superseded", current.id, T0
     db_session.commit()
 
     result = flow.run(now=T0, bankroll=1000.0).execution
 
-    assert [leg.opportunity_id for leg in result.recommendation.legs] == [stale.id]
-    assert float(result.bet.legs[0].odds_taken) == 2.5
+    assert result.eligible_opportunity_ids == [current.id]
+    assert [leg.opportunity_id for leg in result.recommendation.legs] == [current.id]
+    assert float(result.bet.legs[0].odds_taken) == 2.0
+
+
+# F-05 (TTL): una candidata sin reconfirmar mas alla del TTL deja de ser elegible.
+def test_candidate_older_than_ttl_is_not_eligible(db_session, flow):
+    event = _event(db_session, 1)
+    _opp(db_session, event, created_at=T0 - timedelta(days=3))
+    db_session.commit()
+
+    result = flow.run(now=T0, bankroll=1000.0).execution
+
+    assert result.status == "no_bet" and result.eligible_opportunity_ids == []
 
 
 # F-06: won + void -> manual_review deja la Bet 'pending', fuera de settle_due y sin salida por API.
