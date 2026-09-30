@@ -34,6 +34,20 @@ class MatchEvent:
 
 
 @dataclass(frozen=True)
+class EventUpdate:
+    """Cambio de estado/resultado de un evento reportado por una fuente externa.
+
+    Solo lleva lo necesario para actualizar un Event ya existente: se
+    identifica por external_id (la clave que una fuente externa conoce, no el
+    id interno de la BD). `status` es str para que la validacion de datos
+    externos la haga el servicio de ingesta, no el constructor."""
+
+    external_id: str
+    status: str
+    result: str | None = None
+
+
+@dataclass(frozen=True)
 class OddsQuote:
     """Una cuota de mercado para una seleccion concreta de un evento."""
 

@@ -9,6 +9,7 @@ Uso:
 """
 
 import argparse
+import logging
 import signal
 from datetime import datetime
 
@@ -16,10 +17,21 @@ from app.api.deps import get_risk_manager
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.logging import configure_logging
+from app.domain.interfaces import EventUpdateProvider
+from app.ingestion.event_ingestion_service import EventIngestionService
 from app.settlements.trial_settlement_service import TrialSettlementService
 from app.trials.trial_flow_service import TrialFlowResult, TrialFlowService
 from app.trials.trial_scheduler import TrialScheduler, validate_scheduler_config
 from app.trials.trial_service import TrialService
+
+logger = logging.getLogger(__name__)
+
+
+def build_event_update_provider() -> EventUpdateProvider | None:
+    """Punto de conexion del proveedor de estados/resultados. Todavia no hay un
+    proveedor real (fuera de alcance de la Fase 5.11): sin proveedor la
+    ingesta se omite y el ciclo es el de antes."""
+    return None
 
 
 def main() -> None:
@@ -35,11 +47,20 @@ def main() -> None:
 
     configure_logging()
     risk_manager = get_risk_manager(get_settings())
+    event_provider = build_event_update_provider()
 
     def run_flow(now: datetime) -> TrialFlowResult:
         # Sesion nueva por ciclo: evita arrastrar estado/conexiones entre ciclos.
         db = SessionLocal()
         try:
+            # Orden del ciclo: ingesta -> settlement -> nuevas apuestas. Un fallo
+            # del proveedor no debe impedir liquidar ni ejecutar.
+            if event_provider is not None:
+                try:
+                    EventIngestionService(db).sync(event_provider)
+                except Exception:
+                    db.rollback()
+                    logger.exception("Event ingestion failed; continuing with trial flow")
             flow = TrialFlowService(TrialSettlementService(db), TrialService(db, risk_manager))
             return flow.run(now=now, bankroll=args.bankroll)
         finally:

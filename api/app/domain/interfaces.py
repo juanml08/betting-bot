@@ -9,7 +9,7 @@ hace falta que cumpla el Protocol correspondiente.
 from datetime import datetime
 from typing import Protocol
 
-from app.domain.models import MatchEvent, OddsQuote, ProbabilityEstimate, ValueOpportunity
+from app.domain.models import EventUpdate, MatchEvent, OddsQuote, ProbabilityEstimate, ValueOpportunity
 
 
 class DataProvider(Protocol):
@@ -18,6 +18,15 @@ class DataProvider(Protocol):
     def get_events(
         self, *, since: datetime | None = None, until: datetime | None = None
     ) -> list[MatchEvent]: ...
+
+
+class EventUpdateProvider(Protocol):
+    """Etapa INGESTA DE ESTADO: entrega cambios de estado/resultado de eventos.
+
+    No conoce la BD, no modifica Event y no sabe nada de apuestas: solo
+    devuelve EventUpdate; EventIngestionService decide que hacer con ellos."""
+
+    def get_event_updates(self, *, since: datetime | None = None) -> list[EventUpdate]: ...
 
 
 class OddsProvider(Protocol):

@@ -17,3 +17,9 @@ class EventRepository:
     def get_by_external_id(self, external_id: str) -> Event | None:
         stmt = select(Event).where(Event.external_id == external_id)
         return self._db.scalars(stmt).first()
+
+    def apply_update(self, event: Event, *, status: str, result: str | None) -> None:
+        """Aplica estado/resultado ya validados por el servicio de ingesta (flush, sin commit)."""
+        event.status = status
+        event.result = result
+        self._db.flush()
