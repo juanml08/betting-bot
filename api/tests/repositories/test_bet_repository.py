@@ -26,6 +26,7 @@ def _make_event(db_session, external_id="EV1") -> Event:
 
 def _make_recommendation(db_session) -> Recommendation:
     recommendation = Recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",

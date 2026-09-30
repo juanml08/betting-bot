@@ -55,6 +55,7 @@ def test_create_persists_recommendation_and_legs_in_order(db_session, opportunit
     repo = RecommendationRepository(db_session)
 
     recommendation = repo.create(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={"min_edge": 0.03},
         bet_type="compound",
@@ -79,6 +80,7 @@ def test_create_persists_recommendation_and_legs_in_order(db_session, opportunit
 def test_get_returns_recommendation_with_its_opportunities_via_legs(db_session, opportunities):
     repo = RecommendationRepository(db_session)
     created = repo.create(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",
@@ -102,6 +104,7 @@ def test_get_returns_none_when_missing(db_session):
 def test_unique_constraint_rejects_duplicate_leg_order(db_session, opportunities):
     repo = RecommendationRepository(db_session)
     created = repo.create(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",
@@ -126,6 +129,7 @@ def test_unique_constraint_rejects_duplicate_leg_order(db_session, opportunities
 def test_unique_constraint_rejects_duplicate_opportunity(db_session, opportunities):
     repo = RecommendationRepository(db_session)
     created = repo.create(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",
@@ -152,6 +156,7 @@ def test_invalid_opportunity_id_is_rejected_by_db_fk(db_session, opportunities):
 
     with pytest.raises(IntegrityError):
         repo.create(
+            mode="real",
             strategy_name="value_bet_v1",
             strategy_params={},
             bet_type="simple",

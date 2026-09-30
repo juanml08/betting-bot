@@ -1,8 +1,8 @@
 """Construye y persiste una Recommendation ya decidida por la capa superior.
 
 Este servicio NO decide que estrategia usar ni compara simple vs compound:
-solo valida la forma de la seleccion recibida (cantidad de Opportunities
-segun bet_type, sin repetidas) y la persiste como snapshot inmutable via
+solo valida la forma de la seleccion recibida (mode valido, cantidad de
+Opportunities segun bet_type -- 'no_bet' exige 0 --, sin repetidas) y la persiste como snapshot inmutable via
 RecommendationRepository.
 """
 
@@ -13,6 +13,7 @@ from app.db.repositories.recommendation_repository import RecommendationReposito
 
 _COMPOUND_MIN_LEGS = 2
 _COMPOUND_MAX_LEGS = 3
+_VALID_MODES = ("real", "trial")
 
 
 class RecommendationService:
@@ -22,6 +23,7 @@ class RecommendationService:
     def create_recommendation(
         self,
         *,
+        mode: str,
         strategy_name: str,
         strategy_params: dict,
         bet_type: str,
@@ -29,10 +31,14 @@ class RecommendationService:
         opportunity_ids: list[int],
         generated_at: datetime,
         explanation: str | None = None,
+        decision_metadata: dict | None = None,
     ) -> Recommendation:
+        if mode not in _VALID_MODES:
+            raise ValueError(f"mode invalido: {mode!r} (esperado 'real' o 'trial')")
         self._validate_opportunity_ids(bet_type, opportunity_ids)
 
         return self._repository.create(
+            mode=mode,
             strategy_name=strategy_name,
             strategy_params=strategy_params,
             bet_type=bet_type,
@@ -40,6 +46,7 @@ class RecommendationService:
             generated_at=generated_at,
             opportunity_ids=opportunity_ids,
             explanation=explanation,
+            decision_metadata=decision_metadata,
         )
 
     @staticmethod
@@ -57,8 +64,16 @@ class RecommendationService:
                     f"{_COMPOUND_MIN_LEGS} y {_COMPOUND_MAX_LEGS} Opportunities, "
                     f"se recibieron {len(opportunity_ids)}"
                 )
+        elif bet_type == "no_bet":
+            if opportunity_ids:
+                raise ValueError(
+                    "Una Recommendation 'no_bet' no puede tener Opportunities, "
+                    f"se recibieron {len(opportunity_ids)}"
+                )
         else:
-            raise ValueError(f"bet_type invalido: {bet_type!r} (esperado 'simple' o 'compound')")
+            raise ValueError(
+                f"bet_type invalido: {bet_type!r} (esperado 'simple', 'compound' o 'no_bet')"
+            )
 
         if len(set(opportunity_ids)) != len(opportunity_ids):
             raise ValueError("Una Recommendation no puede repetir la misma Opportunity")

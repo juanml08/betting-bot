@@ -120,6 +120,7 @@ def test_register_bet_with_nonexistent_recommendation_is_rejected(client, seeded
 def test_register_bet_with_duplicate_recommendation_returns_conflict(client, db_session, seeded_events):
     event = seeded_events["S1"]
     recommendation = Recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",

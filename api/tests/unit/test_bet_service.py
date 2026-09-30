@@ -140,3 +140,12 @@ def test_nonexistent_recommendation_is_rejected(service, db_session):
     event = _make_event(db_session)
     with pytest.raises(ValueError):
         _create(service, db_session, bet_type="simple", legs=[_leg(event.id)], recommendation_id=999999)
+
+
+@pytest.mark.parametrize("n_legs", [0, 1])
+def test_no_bet_is_not_a_valid_bet_type(service, db_session, n_legs):
+    """'no_bet' pertenece solo a Recommendation: un Bet nunca lo acepta."""
+    event = _make_event(db_session)
+    legs = [_leg(event.id)] if n_legs else []
+    with pytest.raises(ValueError, match="bet_type invalido"):
+        _create(service, db_session, bet_type="no_bet", legs=legs)

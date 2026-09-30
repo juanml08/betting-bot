@@ -87,15 +87,24 @@ class Recommendation(Base):
 
     No se actualiza tras crearse: cambios posteriores en las Opportunities
     referenciadas (via RecommendationOpportunity) no alteran este registro.
+
+    mode ('real' | 'trial') indica si la decision es para dinero real o para
+    TRIAL (dinero ficticio). bet_type puede ser 'simple', 'compound' o
+    'no_bet' (decision de no apostar: 0 RecommendationOpportunity); 'no_bet'
+    pertenece solo a Recommendation, nunca a Bet. decision_metadata es un
+    snapshot JSON opcional del razonamiento de la decision, sin estructura
+    fija todavia.
     """
 
     __tablename__ = "recommendations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20))
     strategy_name: Mapped[str] = mapped_column(String(100))
     strategy_params: Mapped[dict] = mapped_column(JSON)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     bet_type: Mapped[str] = mapped_column(String(20))
+    decision_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     bankroll_at_recommendation: Mapped[float] = mapped_column(Numeric(12, 2))
     generated_at: Mapped[datetime] = mapped_column(DateTime)
 

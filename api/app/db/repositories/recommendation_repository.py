@@ -12,6 +12,7 @@ class RecommendationRepository:
     def create(
         self,
         *,
+        mode: str,
         strategy_name: str,
         strategy_params: dict,
         bet_type: str,
@@ -19,14 +20,17 @@ class RecommendationRepository:
         generated_at: datetime,
         opportunity_ids: list[int],
         explanation: str | None = None,
+        decision_metadata: dict | None = None,
     ) -> Recommendation:
         """Crea la Recommendation junto con sus RecommendationOpportunity en
         una sola operacion atomica: si algo falla (p.ej. una opportunity_id
         invalida), no debe quedar una Recommendation sin sus legs."""
         recommendation = Recommendation(
+            mode=mode,
             strategy_name=strategy_name,
             strategy_params=strategy_params,
             explanation=explanation,
+            decision_metadata=decision_metadata,
             bet_type=bet_type,
             bankroll_at_recommendation=bankroll_at_recommendation,
             generated_at=generated_at,

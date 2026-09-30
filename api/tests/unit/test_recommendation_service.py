@@ -58,6 +58,7 @@ def opportunities(db_session) -> list[Opportunity]:
 
 def test_simple_recommendation_with_exactly_one_opportunity(service, db_session, opportunities):
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={"min_edge": 0.03},
         bet_type="simple",
@@ -77,6 +78,7 @@ def test_simple_recommendation_with_exactly_one_opportunity(service, db_session,
 
 def test_compound_recommendation_with_two_opportunities(service, db_session, opportunities):
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="parlay_v1",
         strategy_params={},
         bet_type="compound",
@@ -97,6 +99,7 @@ def test_compound_recommendation_with_two_opportunities(service, db_session, opp
 
 def test_compound_recommendation_with_three_opportunities(service, db_session, opportunities):
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="parlay_v1",
         strategy_params={},
         bet_type="compound",
@@ -118,6 +121,7 @@ def test_compound_recommendation_with_three_opportunities(service, db_session, o
 def test_compound_with_zero_opportunities_is_rejected(service, db_session):
     with pytest.raises(ValueError):
         service.create_recommendation(
+            mode="real",
             strategy_name="parlay_v1",
             strategy_params={},
             bet_type="compound",
@@ -130,6 +134,7 @@ def test_compound_with_zero_opportunities_is_rejected(service, db_session):
 def test_compound_with_one_opportunity_is_rejected(service, db_session, opportunities):
     with pytest.raises(ValueError):
         service.create_recommendation(
+            mode="real",
             strategy_name="parlay_v1",
             strategy_params={},
             bet_type="compound",
@@ -146,6 +151,7 @@ def test_compound_with_four_opportunities_is_rejected(service, db_session, oppor
 
     with pytest.raises(ValueError):
         service.create_recommendation(
+            mode="real",
             strategy_name="parlay_v1",
             strategy_params={},
             bet_type="compound",
@@ -158,6 +164,7 @@ def test_compound_with_four_opportunities_is_rejected(service, db_session, oppor
 def test_simple_with_zero_opportunities_is_rejected(service, db_session):
     with pytest.raises(ValueError):
         service.create_recommendation(
+            mode="real",
             strategy_name="value_bet_v1",
             strategy_params={},
             bet_type="simple",
@@ -170,6 +177,7 @@ def test_simple_with_zero_opportunities_is_rejected(service, db_session):
 def test_simple_with_two_opportunities_is_rejected(service, db_session, opportunities):
     with pytest.raises(ValueError):
         service.create_recommendation(
+            mode="real",
             strategy_name="value_bet_v1",
             strategy_params={},
             bet_type="simple",
@@ -182,6 +190,7 @@ def test_simple_with_two_opportunities_is_rejected(service, db_session, opportun
 def test_duplicate_opportunity_in_same_recommendation_is_rejected(service, db_session, opportunities):
     with pytest.raises(ValueError):
         service.create_recommendation(
+            mode="real",
             strategy_name="parlay_v1",
             strategy_params={},
             bet_type="compound",
@@ -194,6 +203,7 @@ def test_duplicate_opportunity_in_same_recommendation_is_rejected(service, db_se
 def test_strategy_name_and_params_are_persisted_exactly(service, db_session, opportunities):
     params = {"min_edge": 0.03, "kelly_fraction": 0.25}
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params=params,
         bet_type="simple",
@@ -216,6 +226,7 @@ def test_strategy_name_and_params_are_persisted_exactly(service, db_session, opp
 
 def test_explanation_is_persisted(service, db_session, opportunities):
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",
@@ -231,6 +242,7 @@ def test_explanation_is_persisted(service, db_session, opportunities):
 
 def test_bankroll_at_recommendation_is_persisted(service, db_session, opportunities):
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",
@@ -246,6 +258,7 @@ def test_bankroll_at_recommendation_is_persisted(service, db_session, opportunit
 def test_generated_at_is_persisted(service, db_session, opportunities):
     generated_at = datetime(2026, 3, 4, 12, 30, tzinfo=timezone.utc)
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={},
         bet_type="simple",
@@ -266,6 +279,7 @@ def test_later_changes_to_opportunity_do_not_alter_existing_recommendation(
     service, db_session, opportunities
 ):
     recommendation = service.create_recommendation(
+        mode="real",
         strategy_name="value_bet_v1",
         strategy_params={"min_edge": 0.03},
         bet_type="simple",
@@ -289,3 +303,82 @@ def test_later_changes_to_opportunity_do_not_alter_existing_recommendation(
 
     leg = db_session.query(RecommendationOpportunity).filter_by(recommendation_id=recommendation_id).one()
     assert leg.opportunity_id == opportunity.id
+
+
+def _create(service, **overrides):
+    kwargs = dict(
+        mode="real",
+        strategy_name="value_bet_v1",
+        strategy_params={},
+        bet_type="simple",
+        bankroll_at_recommendation=1000.0,
+        opportunity_ids=[],
+        generated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    )
+    kwargs.update(overrides)
+    return service.create_recommendation(**kwargs)
+
+
+@pytest.mark.parametrize("mode", ["real", "trial"])
+def test_valid_modes_are_persisted(service, db_session, opportunities, mode):
+    recommendation = _create(service, mode=mode, opportunity_ids=[opportunities[0].id])
+    db_session.commit()
+    db_session.expire_all()
+    assert db_session.get(Recommendation, recommendation.id).mode == mode
+
+
+def test_invalid_mode_is_rejected(service, opportunities):
+    with pytest.raises(ValueError, match="mode invalido"):
+        _create(service, mode="paper", opportunity_ids=[opportunities[0].id])
+
+
+def test_no_bet_with_zero_opportunities_is_accepted(service, db_session):
+    recommendation = _create(service, bet_type="no_bet", opportunity_ids=[])
+    db_session.commit()
+    db_session.expire_all()
+
+    reloaded = db_session.get(Recommendation, recommendation.id)
+    assert reloaded.bet_type == "no_bet"
+    assert reloaded.legs == []
+    assert db_session.query(RecommendationOpportunity).count() == 0
+
+
+def test_no_bet_with_one_opportunity_is_rejected(service, db_session, opportunities):
+    with pytest.raises(ValueError, match="no_bet"):
+        _create(service, bet_type="no_bet", opportunity_ids=[opportunities[0].id])
+    assert db_session.query(Recommendation).count() == 0
+
+
+def test_no_bet_works_in_trial_mode(service):
+    recommendation = _create(service, mode="trial", bet_type="no_bet", opportunity_ids=[])
+    assert recommendation.mode == "trial"
+
+
+def test_decision_metadata_defaults_to_none(service, db_session, opportunities):
+    recommendation = _create(service, opportunity_ids=[opportunities[0].id])
+    db_session.commit()
+    db_session.expire_all()
+    assert db_session.get(Recommendation, recommendation.id).decision_metadata is None
+
+
+def test_decision_metadata_is_persisted_as_snapshot(service, db_session, opportunities):
+    metadata = {
+        "simple": {"opportunity_id": opportunities[0].id, "score": 0.08},
+        "selected": "simple",
+        "reason": "test",
+    }
+    recommendation = _create(
+        service, opportunity_ids=[opportunities[0].id], decision_metadata=metadata
+    )
+    db_session.commit()
+
+    # Mutar el dict original o la Opportunity despues no altera lo guardado.
+    metadata["selected"] = "compound"
+    opportunities[0].estimated_probability = 0.99
+    db_session.rollback()
+    db_session.expire_all()
+
+    reloaded = db_session.get(Recommendation, recommendation.id)
+    assert reloaded.decision_metadata["selected"] == "simple"
+    assert reloaded.decision_metadata["simple"]["score"] == 0.08
+    assert reloaded.decision_metadata["reason"] == "test"
